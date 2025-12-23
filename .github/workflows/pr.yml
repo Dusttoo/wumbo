@@ -1,0 +1,244 @@
+# .github/workflows/pr.yml
+name: Pull Request Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+
+jobs:
+  # ==================== Quality Checks ====================
+  quality-checks:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ruff black isort mypy bandit
+          cd backend && pip install -r requirements.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Python - Format check
+        run: |
+          cd backend
+          ruff format --check .
+
+      - name: Python - Lint
+        run: |
+          cd backend
+          ruff check .
+
+      - name: Python - Security check
+        run: |
+          cd backend
+          bandit -r app/ -ll
+        continue-on-error: true
+
+      - name: TypeScript - Type check
+        run: |
+          npm run type-check --workspaces
+
+      - name: TypeScript - Lint
+        run: |
+          npm run lint --workspaces
+
+      - name: TypeScript - Format check
+        run: |
+          npm run format:check --workspaces
+
+  # ==================== Tests ====================
+  tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          cd ..
+          npm ci
+
+      - name: Backend tests
+        run: |
+          cd backend
+          pytest --cov=app --cov-report=xml --cov-report=term-missing
+
+      - name: Frontend tests
+        run: |
+          npm run test:ci --workspaces
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./backend/coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+        continue-on-error: true
+
+  # ==================== Build Verification ====================
+  build-verification:
+    name: Build Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build UI library
+        run: npm run build --workspace=packages/ui
+
+      - name: Build web app
+        run: npm run build --workspace=apps/web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000  # Mock URL for build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          tags: family-budget-backend:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Frontend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          push: false
+          tags: family-budget-frontend:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==================== Security Scanning ====================
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner (Backend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './backend'
+          format: 'sarif'
+          output: 'trivy-backend-results.sarif'
+        continue-on-error: true
+
+      - name: Run Trivy vulnerability scanner (Frontend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './apps'
+          format: 'sarif'
+          output: 'trivy-frontend-results.sarif'
+        continue-on-error: true
+
+      - name: npm audit (Frontend)
+        run: |
+          npm audit --audit-level=moderate || true
+
+      - name: Python dependency check
+        run: |
+          pip install pip-audit
+          cd backend
+          pip-audit --require-hashes --disable-pip || true
+        continue-on-error: true
+
+  # ==================== PR Comment ====================
+  pr-comment:
+    name: PR Summary Comment
+    needs: [quality-checks, tests, build-verification, security-scan]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Create PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const qualityStatus = '${{ needs.quality-checks.result }}';
+            const testsStatus = '${{ needs.tests.result }}';
+            const buildStatus = '${{ needs.build-verification.result }}';
+            const securityStatus = '${{ needs.security-scan.result }}';
+
+            const statusEmoji = (status) => {
+              return status === 'success' ? '✅' : status === 'failure' ? '❌' : '⚠️';
+            };
+
+            const body = `## 🤖 PR Checks Summary
+
+            | Check | Status |
+            |-------|--------|
+            | Code Quality | ${statusEmoji(qualityStatus)} ${qualityStatus} |
+            | Tests | ${statusEmoji(testsStatus)} ${testsStatus} |
+            | Build Verification | ${statusEmoji(buildStatus)} ${buildStatus} |
+            | Security Scan | ${statusEmoji(securityStatus)} ${securityStatus} |
+
+            ${qualityStatus === 'success' && testsStatus === 'success' && buildStatus === 'success'
+              ? '✅ All checks passed! Ready for review.'
+              : '⚠️ Some checks failed. Please review the details above.'}
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

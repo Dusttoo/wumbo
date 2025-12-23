@@ -1,0 +1,612 @@
+# .github/workflows/deploy.yml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, development, staging]
+  pull_request:
+    branches: [main, development, staging]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# Cancel outdated workflow runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-east-1
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+
+jobs:
+  # ==================== Quality Checks ====================
+  backend-quality:
+    name: Backend Quality & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Format check (Ruff)
+        run: |
+          cd backend
+          ruff format --check .
+
+      - name: Lint (Ruff)
+        run: |
+          cd backend
+          ruff check .
+
+      - name: Type check (MyPy)
+        run: |
+          cd backend
+          mypy app/ --ignore-missing-imports
+        continue-on-error: true  # Don't fail on type errors initially
+
+      - name: Security check (Bandit)
+        run: |
+          cd backend
+          bandit -r app/ -ll  # Low and higher severity
+        continue-on-error: true
+
+      - name: Run tests
+        run: |
+          cd backend
+          pytest --cov=app --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          file: ./backend/coverage.xml
+          flags: backend
+          token: ${{ secrets.CODECOV_TOKEN }}
+        continue-on-error: true
+
+  web-quality:
+    name: Web Frontend Quality & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check --workspace=apps/web
+
+      - name: Lint
+        run: npm run lint --workspace=apps/web
+
+      - name: Format check
+        run: npm run format:check --workspace=apps/web
+
+      - name: Unit tests
+        run: npm run test:ci --workspace=apps/web
+
+      - name: Build
+        run: npm run build --workspace=apps/web
+
+  mobile-quality:
+    name: Mobile App Quality & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check --workspace=apps/mobile
+
+      - name: Lint
+        run: npm run lint --workspace=apps/mobile
+
+      - name: Unit tests
+        run: npm run test:ci --workspace=apps/mobile
+
+  ui-library-quality:
+    name: UI Library Quality & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check --workspace=packages/ui
+
+      - name: Lint
+        run: npm run lint --workspace=packages/ui
+
+      - name: Unit tests
+        run: npm run test:ci --workspace=packages/ui
+
+      - name: Build
+        run: npm run build --workspace=packages/ui
+
+  # ==================== Determine Environment ====================
+  determine-environment:
+    name: Determine Deployment Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      should-deploy: ${{ steps.set-env.outputs.should-deploy }}
+    steps:
+      - name: Determine environment
+        id: set-env
+        run: |
+          # Determine environment based on trigger
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+            SHOULD_DEPLOY="true"
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
+            ENV="none"
+            SHOULD_DEPLOY="false"
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENV="production"
+            SHOULD_DEPLOY="true"
+          elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
+            ENV="staging"
+            SHOULD_DEPLOY="true"
+          elif [ "${{ github.ref }}" == "refs/heads/development" ]; then
+            ENV="development"
+            SHOULD_DEPLOY="true"
+          else
+            ENV="none"
+            SHOULD_DEPLOY="false"
+          fi
+
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "should-deploy=$SHOULD_DEPLOY" >> $GITHUB_OUTPUT
+
+          echo "🎯 Environment: $ENV"
+          echo "🚀 Deploy: $SHOULD_DEPLOY"
+
+  # ==================== Detect Changes ====================
+  detect-changes:
+    name: Detect Changed Files
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      web: ${{ steps.changes.outputs.web }}
+      mobile: ${{ steps.changes.outputs.mobile }}
+      worker: ${{ steps.changes.outputs.worker }}
+      ui: ${{ steps.changes.outputs.ui }}
+      infrastructure: ${{ steps.changes.outputs.infrastructure }}
+      migrations: ${{ steps.changes.outputs.migrations }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          list-files: shell
+          filters: |
+            backend:
+              - 'backend/**'
+            web:
+              - 'apps/web/**'
+            mobile:
+              - 'apps/mobile/**'
+            worker:
+              - 'worker/**'
+            ui:
+              - 'packages/ui/**'
+            infrastructure:
+              - 'infrastructure/**'
+              - '.github/workflows/**'
+            migrations:
+              - 'backend/alembic/**'
+              - 'backend/app/models/**'
+
+  # ==================== Build and Push Docker Images ====================
+  build-and-push:
+    name: Build & Push Docker Images
+    needs: [backend-quality, web-quality, ui-library-quality, determine-environment, detect-changes]
+    if: |
+      needs.determine-environment.outputs.should-deploy == 'true' &&
+      (needs.detect-changes.outputs.backend == 'true' ||
+       needs.detect-changes.outputs.web == 'true' ||
+       needs.detect-changes.outputs.worker == 'true' ||
+       needs.detect-changes.outputs.ui == 'true' ||
+       needs.detect-changes.outputs.migrations == 'true')
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get ECR repository URIs
+        id: ecr-repos
+        run: |
+          ENV=${{ needs.determine-environment.outputs.environment }}
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "backend=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/family-budget/backend" >> $GITHUB_OUTPUT
+          echo "frontend=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/family-budget/frontend" >> $GITHUB_OUTPUT
+          echo "worker=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/family-budget/worker" >> $GITHUB_OUTPUT
+          echo "migrations=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/family-budget/migrations" >> $GITHUB_OUTPUT
+
+      - name: Build and push Backend image
+        if: needs.detect-changes.outputs.backend == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.ecr-repos.outputs.backend }}:latest
+            ${{ steps.ecr-repos.outputs.backend }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Frontend image
+        if: needs.detect-changes.outputs.web == 'true' || needs.detect-changes.outputs.ui == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.ecr-repos.outputs.frontend }}:latest
+            ${{ steps.ecr-repos.outputs.frontend }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Worker image
+        if: needs.detect-changes.outputs.worker == 'true' || needs.detect-changes.outputs.backend == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./worker
+          file: ./worker/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.ecr-repos.outputs.worker }}:latest
+            ${{ steps.ecr-repos.outputs.worker }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Migrations image
+        if: needs.detect-changes.outputs.migrations == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.migrations
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.ecr-repos.outputs.migrations }}:latest
+            ${{ steps.ecr-repos.outputs.migrations }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==================== Run Database Migrations ====================
+  run-migrations:
+    name: Run Database Migrations
+    needs: [build-and-push, detect-changes, determine-environment]
+    if: needs.detect-changes.outputs.migrations == 'true' && needs.determine-environment.outputs.should-deploy == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get VPC configuration
+        id: vpc-config
+        run: |
+          ENV=${{ needs.determine-environment.outputs.environment }}
+
+          # Get subnets and security groups from Parameter Store
+          SUBNETS=$(aws ssm get-parameter \
+            --name "/${ENV}/family-budget/private-subnets" \
+            --query 'Parameter.Value' \
+            --output text)
+
+          DB_SG=$(aws ssm get-parameter \
+            --name "/${ENV}/family-budget/db-security-group" \
+            --query 'Parameter.Value' \
+            --output text)
+
+          echo "subnets=$SUBNETS" >> $GITHUB_OUTPUT
+          echo "security-group=$DB_SG" >> $GITHUB_OUTPUT
+
+      - name: Run migrations via ECS Task
+        run: |
+          ENV=${{ needs.determine-environment.outputs.environment }}
+          echo "🔄 Running database migrations..."
+
+          # Get latest task definition
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition ${ENV}-family-budget-migrations \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          # Run one-off ECS task
+          TASK_ARN=$(aws ecs run-task \
+            --cluster ${ENV}-family-budget-cluster \
+            --task-definition $TASK_DEF \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.vpc-config.outputs.subnets }}],securityGroups=[${{ steps.vpc-config.outputs.security-group }}],assignPublicIp=DISABLED}" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Migration task: $TASK_ARN"
+
+          # Wait for task to complete (10 minute timeout)
+          aws ecs wait tasks-stopped \
+            --cluster ${ENV}-family-budget-cluster \
+            --tasks $TASK_ARN
+
+          # Check exit code
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster ${ENV}-family-budget-cluster \
+            --tasks $TASK_ARN \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "❌ Migration failed with exit code: $EXIT_CODE"
+            exit 1
+          fi
+
+          echo "✅ Migrations completed successfully"
+
+  # ==================== Deploy Services ====================
+  deploy-services:
+    name: Deploy ECS Services
+    needs: [build-and-push, run-migrations, detect-changes, determine-environment]
+    # Run if build succeeded, even if migrations were skipped
+    if: |
+      always() &&
+      needs.build-and-push.result == 'success' &&
+      needs.determine-environment.outputs.should-deploy == 'true' &&
+      (needs.run-migrations.result == 'success' || needs.run-migrations.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy Backend service
+        if: needs.detect-changes.outputs.backend == 'true'
+        run: |
+          ENV=${{ needs.determine-environment.outputs.environment }}
+          echo "🚀 Deploying Backend service..."
+
+          aws ecs update-service \
+            --cluster ${ENV}-family-budget-cluster \
+            --service ${ENV}-family-budget-backend \
+            --force-new-deployment
+
+          echo "✅ Backend deployment initiated"
+
+      - name: Deploy Frontend service
+        if: needs.detect-changes.outputs.web == 'true' || needs.detect-changes.outputs.ui == 'true'
+        run: |
+          ENV=${{ needs.determine-environment.outputs.environment }}
+          echo "🚀 Deploying Frontend service..."
+
+          aws ecs update-service \
+            --cluster ${ENV}-family-budget-cluster \
+            --service ${ENV}-family-budget-frontend \
+            --force-new-deployment
+
+          echo "✅ Frontend deployment initiated"
+
+      - name: Deploy Worker service
+        if: needs.detect-changes.outputs.worker == 'true' || needs.detect-changes.outputs.backend == 'true'
+        run: |
+          ENV=${{ needs.determine-environment.outputs.environment }}
+          echo "🚀 Deploying Worker service..."
+
+          aws ecs update-service \
+            --cluster ${ENV}-family-budget-cluster \
+            --service ${ENV}-family-budget-worker \
+            --force-new-deployment
+
+          echo "✅ Worker deployment initiated"
+
+      - name: Wait for services to stabilize
+        run: |
+          ENV=${{ needs.determine-environment.outputs.environment }}
+          echo "⏳ Waiting for services to stabilize..."
+
+          SERVICES=""
+
+          if [ "${{ needs.detect-changes.outputs.backend }}" == "true" ]; then
+            SERVICES="${ENV}-family-budget-backend"
+          fi
+
+          if [ "${{ needs.detect-changes.outputs.web }}" == "true" ] || [ "${{ needs.detect-changes.outputs.ui }}" == "true" ]; then
+            SERVICES="$SERVICES ${ENV}-family-budget-frontend"
+          fi
+
+          if [ "${{ needs.detect-changes.outputs.worker }}" == "true" ] || [ "${{ needs.detect-changes.outputs.backend }}" == "true" ]; then
+            SERVICES="$SERVICES ${ENV}-family-budget-worker"
+          fi
+
+          if [ -n "$SERVICES" ]; then
+            echo "Waiting for: $SERVICES"
+            aws ecs wait services-stable \
+              --cluster ${ENV}-family-budget-cluster \
+              --services $SERVICES
+            echo "✅ All services are stable"
+          else
+            echo "No services to wait for"
+          fi
+
+  # ==================== Post-Deployment Validation ====================
+  post-deployment-validation:
+    name: Post-Deployment Validation
+    needs: [deploy-services, determine-environment]
+    if: needs.deploy-services.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Health check - Backend
+        run: |
+          ENV=${{ needs.determine-environment.outputs.environment }}
+
+          # Get backend URL from Parameter Store
+          BACKEND_URL=$(aws ssm get-parameter \
+            --name "/${ENV}/family-budget/backend-url" \
+            --query 'Parameter.Value' \
+            --output text) || true
+
+          if [ -n "$BACKEND_URL" ]; then
+            echo "Checking health at: $BACKEND_URL/health"
+
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" ${BACKEND_URL}/health || echo "000")
+
+            if [ "$RESPONSE" == "200" ]; then
+              echo "✅ Backend is healthy"
+            else
+              echo "⚠️  Health check returned: HTTP $RESPONSE"
+            fi
+          else
+            echo "⚠️  Backend URL not found in Parameter Store, skipping health check"
+          fi
+
+      - name: Health check - Frontend
+        run: |
+          ENV=${{ needs.determine-environment.outputs.environment }}
+
+          FRONTEND_URL=$(aws ssm get-parameter \
+            --name "/${ENV}/family-budget/frontend-url" \
+            --query 'Parameter.Value' \
+            --output text) || true
+
+          if [ -n "$FRONTEND_URL" ]; then
+            echo "Checking health at: $FRONTEND_URL/api/health"
+
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" ${FRONTEND_URL}/api/health || echo "000")
+
+            if [ "$RESPONSE" == "200" ]; then
+              echo "✅ Frontend is healthy"
+            else
+              echo "⚠️  Health check returned: HTTP $RESPONSE"
+            fi
+          else
+            echo "⚠️  Frontend URL not found in Parameter Store, skipping health check"
+          fi
+
+  # ==================== Notify ====================
+  notify:
+    name: Send Deployment Notification
+    needs: [determine-environment, post-deployment-validation]
+    runs-on: ubuntu-latest
+    if: always() && needs.determine-environment.outputs.should-deploy == 'true'
+
+    steps:
+      - name: Determine overall status
+        id: status
+        run: |
+          if [ "${{ needs.post-deployment-validation.result }}" == "success" ]; then
+            echo "result=success" >> $GITHUB_OUTPUT
+            echo "emoji=✅" >> $GITHUB_OUTPUT
+          else
+            echo "result=failure" >> $GITHUB_OUTPUT
+            echo "emoji=❌" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send notification
+        run: |
+          ENV="${{ needs.determine-environment.outputs.environment }}"
+          STATUS="${{ steps.status.outputs.result }}"
+          EMOJI="${{ steps.status.outputs.emoji }}"
+
+          echo "$EMOJI Deployment to $ENV: $STATUS"
+
+          # TODO: Add Slack/Discord webhook notification if desired
+          # curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          #   -H 'Content-Type: application/json' \
+          #   -d "{\"text\":\"$EMOJI Deployment to $ENV: $STATUS\"}"

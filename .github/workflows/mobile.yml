@@ -1,0 +1,221 @@
+# .github/workflows/mobile.yml
+name: Mobile App Build
+
+on:
+  push:
+    branches: [main, development]
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/ui/**'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - ios
+          - android
+      profile:
+        description: 'Build profile'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ==================== Determine Build Configuration ====================
+  configure:
+    name: Configure Build
+    runs-on: ubuntu-latest
+    outputs:
+      profile: ${{ steps.config.outputs.profile }}
+      should-build-ios: ${{ steps.config.outputs.should-build-ios }}
+      should-build-android: ${{ steps.config.outputs.should-build-android }}
+    steps:
+      - name: Determine build configuration
+        id: config
+        run: |
+          # Determine profile
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PROFILE="${{ github.event.inputs.profile }}"
+            PLATFORM="${{ github.event.inputs.platform }}"
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            PROFILE="production"
+            PLATFORM="all"
+          else
+            PROFILE="development"
+            PLATFORM="all"
+          fi
+
+          echo "profile=$PROFILE" >> $GITHUB_OUTPUT
+
+          # Determine which platforms to build
+          if [ "$PLATFORM" == "all" ] || [ "$PLATFORM" == "ios" ]; then
+            echo "should-build-ios=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-build-ios=false" >> $GITHUB_OUTPUT
+          fi
+
+          if [ "$PLATFORM" == "all" ] || [ "$PLATFORM" == "android" ]; then
+            echo "should-build-android=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-build-android=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "📱 Profile: $PROFILE"
+          echo "🍎 Build iOS: $([ "$PLATFORM" == "all" ] || [ "$PLATFORM" == "ios" ] && echo "yes" || echo "no")"
+          echo "🤖 Build Android: $([ "$PLATFORM" == "all" ] || [ "$PLATFORM" == "android" ] && echo "yes" || echo "no")"
+
+  # ==================== Build iOS ====================
+  build-ios:
+    name: Build iOS App
+    needs: configure
+    if: needs.configure.outputs.should-build-ios == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Set up Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build iOS app
+        run: |
+          cd apps/mobile
+          eas build --platform ios \
+            --profile ${{ needs.configure.outputs.profile }} \
+            --non-interactive \
+            --no-wait
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Get build URL
+        run: |
+          cd apps/mobile
+          BUILD_URL=$(eas build:list --platform ios --limit 1 --json | jq -r '.[0].artifacts.buildUrl')
+          echo "🍎 iOS build URL: $BUILD_URL"
+          echo "::notice::iOS build started: $BUILD_URL"
+
+  # ==================== Build Android ====================
+  build-android:
+    name: Build Android App
+    needs: configure
+    if: needs.configure.outputs.should-build-android == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Set up Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Android app
+        run: |
+          cd apps/mobile
+          eas build --platform android \
+            --profile ${{ needs.configure.outputs.profile }} \
+            --non-interactive \
+            --no-wait
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Get build URL
+        run: |
+          cd apps/mobile
+          BUILD_URL=$(eas build:list --platform android --limit 1 --json | jq -r '.[0].artifacts.buildUrl')
+          echo "🤖 Android build URL: $BUILD_URL"
+          echo "::notice::Android build started: $BUILD_URL"
+
+  # ==================== Submit to App Stores (Manual Only) ====================
+  submit-ios:
+    name: Submit iOS to App Store
+    runs-on: ubuntu-latest
+    # Only run on manual workflow dispatch with production profile
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.profile == 'production' &&
+      github.event.inputs.platform != 'android'
+    environment: production  # Requires manual approval
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Submit to App Store
+        run: |
+          cd apps/mobile
+          eas submit --platform ios --latest --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.EXPO_APPLE_APP_SPECIFIC_PASSWORD }}
+
+  submit-android:
+    name: Submit Android to Play Store
+    runs-on: ubuntu-latest
+    # Only run on manual workflow dispatch with production profile
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.profile == 'production' &&
+      github.event.inputs.platform != 'ios'
+    environment: production  # Requires manual approval
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Submit to Play Store
+        run: |
+          cd apps/mobile
+          eas submit --platform android --latest --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_ANDROID_SERVICE_ACCOUNT_KEY_PATH: ${{ secrets.EXPO_ANDROID_SERVICE_ACCOUNT_KEY_PATH }}
