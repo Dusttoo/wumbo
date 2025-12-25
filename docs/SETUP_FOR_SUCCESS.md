@@ -1,4 +1,4 @@
-# Family Budget App - Setup for Success Summary
+# Wumbo App - Setup for Success Summary
 
 This document summarizes all the planning and architecture work completed to ensure a successful project from day one.
 
@@ -183,7 +183,7 @@ feature/*   → PR checks only
 ## 📁 Project Structure
 
 ```
-family-budget/
+wumbo/
 ├── .github/
 │   ├── workflows/
 │   │   ├── deploy.yml           # Main CI/CD pipeline
@@ -393,4 +393,4 @@ Everything is in place to start development immediately:
 
 ---
 
-*This setup provides a solid foundation for building a production-ready, scalable, and maintainable family budget application.*
+*This setup provides a solid foundation for building a production-ready, scalable, and maintainable Wumbo application.*

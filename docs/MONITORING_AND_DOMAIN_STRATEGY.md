@@ -1,6 +1,6 @@
 # Monitoring & Domain Strategy
 
-This document summarizes the cost-optimized monitoring approach and flexible domain handling for the Family Budget app.
+This document summarizes the cost-optimized monitoring approach and flexible domain handling for the Wumbo app.
 
 ## Monitoring Strategy: Prometheus + Grafana
 
@@ -282,7 +282,7 @@ When implementing, reference these from cipher-dnd-bot:
 - EFS access point setup
 - Security group configuration
 
-### What's Different for Family Budget
+### What's Different for Wumbo
 
 Compared to cipher-dnd-bot monitoring:
 - Additional exporters: postgres_exporter, redis_exporter

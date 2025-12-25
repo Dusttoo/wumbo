@@ -151,7 +151,7 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: false
-          tags: family-budget-backend:pr-${{ github.event.pull_request.number }}
+          tags: wumbo-backend:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -161,7 +161,7 @@ jobs:
           context: .
           file: ./apps/web/Dockerfile
           push: false
-          tags: family-budget-frontend:pr-${{ github.event.pull_request.number }}
+          tags: wumbo-frontend:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

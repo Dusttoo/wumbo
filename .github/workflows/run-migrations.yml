@@ -1,0 +1,127 @@
+name: Run Database Migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to run migrations in'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+  # Optionally trigger automatically after backend deployment
+  workflow_run:
+    workflows: ["Backend CI/CD"]
+    types:
+      - completed
+
+jobs:
+  run-migrations:
+    name: Run Database Migrations
+    runs-on: ubuntu-latest
+
+    # Only run if backend deployment succeeded (when triggered by workflow_run)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    # Determine environment
+    env:
+      ENVIRONMENT: ${{ github.event.inputs.environment || 'development' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Get stack outputs
+        id: stack-outputs
+        run: |
+          CLUSTER_NAME=$(aws cloudformation describe-stacks \
+            --stack-name "${ENVIRONMENT}-ComputeStack" \
+            --query "Stacks[0].Outputs[?OutputKey=='ClusterName'].OutputValue" \
+            --output text)
+
+          TASK_DEF_ARN=$(aws cloudformation describe-stacks \
+            --stack-name "${ENVIRONMENT}-ComputeStack" \
+            --query "Stacks[0].Outputs[?OutputKey=='MigrationTaskDefinitionArn'].OutputValue" \
+            --output text)
+
+          VPC_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${ENVIRONMENT}-SecurityStack" \
+            --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" \
+            --output text)
+
+          echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+          echo "task_def_arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
+          echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
+
+      - name: Get network configuration
+        id: network-config
+        run: |
+          SUBNETS=$(aws ec2 describe-subnets \
+            --filters "Name=vpc-id,Values=${{ steps.stack-outputs.outputs.vpc_id }}" \
+                      "Name=tag:Name,Values=*Private*" \
+            --query "Subnets[*].SubnetId" \
+            --output text | tr '\t' ',')
+
+          SECURITY_GROUP=$(aws ec2 describe-security-groups \
+            --filters "Name=vpc-id,Values=${{ steps.stack-outputs.outputs.vpc_id }}" \
+                      "Name=group-name,Values=*MigrationSecurityGroup*" \
+            --query "SecurityGroups[0].GroupId" \
+            --output text)
+
+          echo "subnets=$SUBNETS" >> $GITHUB_OUTPUT
+          echo "security_group=$SECURITY_GROUP" >> $GITHUB_OUTPUT
+
+      - name: Run migration task
+        id: run-migration
+        run: |
+          echo "🚀 Starting database migration for $ENVIRONMENT..."
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ steps.stack-outputs.outputs.cluster_name }}" \
+            --task-definition "${{ steps.stack-outputs.outputs.task_def_arn }}" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ steps.network-config.outputs.subnets }}],securityGroups=[${{ steps.network-config.outputs.security_group }}],assignPublicIp=DISABLED}" \
+            --query "tasks[0].taskArn" \
+            --output text)
+
+          echo "task_arn=$TASK_ARN" >> $GITHUB_OUTPUT
+          echo "✓ Migration task started: $TASK_ARN"
+
+      - name: Wait for migration to complete
+        run: |
+          echo "⏳ Waiting for migration to complete..."
+
+          aws ecs wait tasks-stopped \
+            --cluster "${{ steps.stack-outputs.outputs.cluster_name }}" \
+            --tasks "${{ steps.run-migration.outputs.task_arn }}"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "${{ steps.stack-outputs.outputs.cluster_name }}" \
+            --tasks "${{ steps.run-migration.outputs.task_arn }}" \
+            --query "tasks[0].containers[0].exitCode" \
+            --output text)
+
+          if [ "$EXIT_CODE" = "0" ]; then
+            echo "✅ Migration completed successfully!"
+          else
+            echo "❌ Migration failed with exit code: $EXIT_CODE"
+            exit 1
+          fi
+
+      - name: Get migration logs
+        if: always()
+        run: |
+          echo "📝 Migration logs:"
+          aws logs tail "/aws/ecs/${ENVIRONMENT}-wumbo-cluster/migration" \
+            --since 10m \
+            --format short || echo "No logs available yet"

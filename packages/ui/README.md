@@ -1,6 +1,6 @@
-# @family-budget/ui
+# @wumbo/ui
 
-Shared UI component library for Family Budget web and mobile applications.
+Shared UI component library for Wumbo web and mobile applications.
 
 ## Overview
 
@@ -33,14 +33,14 @@ packages/ui/
 This package is automatically linked in the monorepo. Just import it:
 
 ```typescript
-import { Button, Input, Card } from '@family-budget/ui';
-import { colors, spacing } from '@family-budget/ui/tokens';
+import { Button, Input, Card } from '@wumbo/ui';
+import { colors, spacing } from '@wumbo/ui/tokens';
 ```
 
 ### Example Component
 
 ```typescript
-import { Button } from '@family-budget/ui';
+import { Button } from '@wumbo/ui';
 
 export function MyComponent() {
   return (
@@ -60,7 +60,7 @@ export function MyComponent() {
 ### Colors
 
 ```typescript
-import { colors } from '@family-budget/ui/tokens';
+import { colors } from '@wumbo/ui/tokens';
 
 const primary = colors.primary[500];
 const success = colors.success;
@@ -69,7 +69,7 @@ const success = colors.success;
 ### Spacing
 
 ```typescript
-import { spacing } from '@family-budget/ui/tokens';
+import { spacing } from '@wumbo/ui/tokens';
 
 const margin = spacing[4]; // 16px
 ```
@@ -77,7 +77,7 @@ const margin = spacing[4]; // 16px
 ### Typography
 
 ```typescript
-import { typography } from '@family-budget/ui/tokens';
+import { typography } from '@wumbo/ui/tokens';
 
 const fontFamily = typography.fontFamily.primary;
 const fontSize = typography.fontSize.lg;

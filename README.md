@@ -1,13 +1,13 @@
-# Family Budget App
+# Wumbo App
 
-A comprehensive family budget management platform that helps households track spending, manage bills, set savings goals, and gain financial clarity through automated bank connections and intuitive interfaces.
+A comprehensive Wumbo management platform that helps households track spending, manage bills, set savings goals, and gain financial clarity through automated bank connections and intuitive interfaces.
 
 ## Project Structure
 
 This is a monorepo managed with [Turborepo](https://turbo.build/repo) containing:
 
 ```
-family-budget/
+wumbo/
 ├── apps/
 │   ├── web/              # Next.js web application
 │   └── mobile/           # React Native mobile app (Expo)
@@ -37,7 +37,7 @@ family-budget/
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd family-budget
+   cd wumbo
    ```
 
 2. **Install dependencies**
@@ -79,13 +79,13 @@ This starts:
 **Individual services:**
 ```bash
 # Web app only
-npm run dev --workspace=@family-budget/web
+npm run dev --workspace=@wumbo/web
 
 # Mobile app only
-npm run dev --workspace=@family-budget/mobile
+npm run dev --workspace=@wumbo/mobile
 
 # UI library (watch mode)
-npm run dev --workspace=@family-budget/ui
+npm run dev --workspace=@wumbo/ui
 ```
 
 ## Available Scripts
@@ -121,8 +121,9 @@ ruff format .
 mypy app/
 
 # Database migrations
-alembic upgrade head           # Apply migrations
-alembic revision --autogenerate -m "description"  # Create migration
+python scripts/run_migrations.py                    # Apply migrations (local)
+alembic revision --autogenerate -m "description"    # Create new migration
+alembic current                                      # Check current revision
 ```
 
 ### Infrastructure
@@ -131,25 +132,46 @@ alembic revision --autogenerate -m "description"  # Create migration
 cd infrastructure
 
 # Deploy to development
-make deploy-dev
+cdk deploy -c environment=development --all
 
 # Deploy specific stack
-make deploy-stack STACK=Database ENV=development
+cdk deploy -c environment=development development-DatabaseStack
 
 # View infrastructure changes
-make diff ENV=development
+cdk diff -c environment=development
 
 # Destroy infrastructure (careful!)
-make destroy ENV=development
+cdk destroy -c environment=development --all
 ```
+
+### Mobile App Builds
+
+```bash
+cd apps/mobile
+
+# Development builds
+make dev-ios          # iOS development build
+make dev-android      # Android development build
+
+# Production builds (requires confirmation)
+make prod-ios         # iOS production build
+make prod-android     # Android production build
+```
+
+See [BUILD.md](./apps/mobile/BUILD.md) for complete build documentation.
 
 ## Documentation
 
+### Project Documentation
 - **[Implementation Plan](./plan.md)** - Complete project roadmap and features
-- **[Infrastructure Architecture](./docs/INFRASTRUCTURE.md)** - AWS CDK infrastructure details
+- **[Infrastructure Architecture](./infrastructure/README.md)** - AWS CDK infrastructure deployment guide
+- **[Monitoring Stack](./infrastructure/MONITORING.md)** - Prometheus/Grafana observability setup
+- **[Database Migrations](./backend/MIGRATIONS.md)** - Alembic migration management guide
+- **[Mobile App Builds](./apps/mobile/BUILD.md)** - EAS build and deployment guide
+
+### Design & Strategy
 - **[CI/CD Strategy](./docs/CICD_STRATEGY.md)** - Deployment pipeline and workflows
 - **[Design System](./docs/DESIGN_SYSTEM.md)** - UI component library guidelines
-- **[Monitoring Strategy](./docs/MONITORING_AND_DOMAIN_STRATEGY.md)** - Prometheus/Grafana setup
 - **[Setup for Success](./docs/SETUP_FOR_SUCCESS.md)** - Complete setup summary
 
 ## Architecture
@@ -168,11 +190,14 @@ make destroy ENV=development
 - **Task Queue**: Celery
 - **Authentication**: JWT-based custom auth
 
-### Infrastructure
-- **Cloud**: AWS (ECS Fargate, RDS, ElastiCache)
-- **IaC**: AWS CDK (Python)
-- **Monitoring**: Prometheus + Grafana
-- **CI/CD**: GitHub Actions
+### Infrastructure (AWS CDK)
+1. **SecurityStack** - VPC, Secrets Manager, KMS encryption
+2. **EcrStack** - Container registries for Docker images
+3. **DatabaseStack** - RDS PostgreSQL 16 with Graviton instances
+4. **CacheStack** - ElastiCache Redis 7.1 for caching and Celery broker
+5. **DnsStack** - Route53 hosted zones and ACM SSL certificates (optional)
+6. **ComputeStack** - ECS Fargate services (Backend API, Celery Worker, Celery Beat, Migration Task)
+7. **MonitoringStack** - Prometheus, Grafana, CloudWatch Alarms, and SNS notifications
 
 ## Tech Stack
 
@@ -181,22 +206,30 @@ make destroy ENV=development
 | Frontend (Web) | Next.js, React, TypeScript, Tailwind CSS |
 | Frontend (Mobile) | React Native, Expo, TypeScript, NativeWind |
 | Backend | FastAPI, Python, SQLAlchemy, Pydantic |
-| Database | PostgreSQL, Redis |
-| Infrastructure | AWS CDK, ECS Fargate, RDS, ElastiCache |
-| CI/CD | GitHub Actions |
-| Monitoring | Prometheus, Grafana |
+| Database | PostgreSQL 16, Redis 7.1, Alembic (migrations) |
+| Infrastructure | AWS CDK, ECS Fargate, RDS, ElastiCache, Route53, ACM |
+| Security | Fernet encryption, JWT auth, webhook verification, KMS |
+| Monitoring | Prometheus, Grafana, CloudWatch, SNS |
+| CI/CD | GitHub Actions, EAS Build |
 | Testing | Jest, Pytest, Playwright |
 
 ## Key Features
 
+### Financial Management
 - 💳 **Transaction Tracking** - Automatic import via Plaid + manual entry
 - 📊 **Budgets** - Category-based budgets with alerts
 - 📅 **Bills & Subscriptions** - Track recurring payments
 - 🎯 **Savings Goals** - Set and monitor progress
 - 🏠 **Multi-User Households** - Share finances with family
-- 📱 **Mobile & Web** - Access from anywhere
-- 🔔 **Notifications** - Bill reminders and budget alerts
 - 📈 **Analytics** - Spending trends and insights
+
+### Platform & Security
+- 📱 **Mobile & Web** - Access from anywhere with native apps
+- 🔔 **Notifications** - Bill reminders and budget alerts
+- 🔒 **Bank-Level Security** - Encrypted data storage, webhook verification
+- 🔐 **SSL/TLS** - HTTPS with custom domains
+- 📊 **Observability** - Prometheus metrics and Grafana dashboards
+- 🚀 **Production-Ready** - Automated migrations, monitoring, and alerts
 
 ## Development Workflow
 
@@ -256,7 +289,7 @@ Private - All rights reserved
 
 For questions or issues:
 - Check the [documentation](./docs/)
-- Review [existing issues](https://github.com/your-org/family-budget/issues)
+- Review [existing issues](https://github.com/your-org/wumbo/issues)
 - Create a new issue
 
 ---

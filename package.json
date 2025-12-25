@@ -1,8 +1,8 @@
 {
-  "name": "family-budget",
+  "name": "wumbo",
   "version": "0.1.0",
   "private": true,
-  "description": "Family Budget - Comprehensive budget management app for households",
+  "description": "Wumbo - Comprehensive budget management app for households",
   "workspaces": [
     "apps/*",
     "packages/*"

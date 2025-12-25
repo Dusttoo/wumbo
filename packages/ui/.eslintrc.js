@@ -1,3 +1,3 @@
 module.exports = {
-  extends: ['@family-budget/config/eslint/react-native'],
+  extends: ['@wumbo/config/eslint/react-native'],
 };

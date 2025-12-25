@@ -291,10 +291,10 @@ jobs:
         run: |
           ENV=${{ needs.determine-environment.outputs.environment }}
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "backend=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/family-budget/backend" >> $GITHUB_OUTPUT
-          echo "frontend=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/family-budget/frontend" >> $GITHUB_OUTPUT
-          echo "worker=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/family-budget/worker" >> $GITHUB_OUTPUT
-          echo "migrations=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/family-budget/migrations" >> $GITHUB_OUTPUT
+          echo "backend=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/wumbo/backend" >> $GITHUB_OUTPUT
+          echo "frontend=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/wumbo/frontend" >> $GITHUB_OUTPUT
+          echo "worker=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/wumbo/worker" >> $GITHUB_OUTPUT
+          echo "migrations=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}/wumbo/migrations" >> $GITHUB_OUTPUT
 
       - name: Build and push Backend image
         if: needs.detect-changes.outputs.backend == 'true'
@@ -375,12 +375,12 @@ jobs:
 
           # Get subnets and security groups from Parameter Store
           SUBNETS=$(aws ssm get-parameter \
-            --name "/${ENV}/family-budget/private-subnets" \
+            --name "/${ENV}/wumbo/private-subnets" \
             --query 'Parameter.Value' \
             --output text)
 
           DB_SG=$(aws ssm get-parameter \
-            --name "/${ENV}/family-budget/db-security-group" \
+            --name "/${ENV}/wumbo/db-security-group" \
             --query 'Parameter.Value' \
             --output text)
 
@@ -394,13 +394,13 @@ jobs:
 
           # Get latest task definition
           TASK_DEF=$(aws ecs describe-task-definition \
-            --task-definition ${ENV}-family-budget-migrations \
+            --task-definition ${ENV}-wumbo-migrations \
             --query 'taskDefinition.taskDefinitionArn' \
             --output text)
 
           # Run one-off ECS task
           TASK_ARN=$(aws ecs run-task \
-            --cluster ${ENV}-family-budget-cluster \
+            --cluster ${ENV}-wumbo-cluster \
             --task-definition $TASK_DEF \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[${{ steps.vpc-config.outputs.subnets }}],securityGroups=[${{ steps.vpc-config.outputs.security-group }}],assignPublicIp=DISABLED}" \
@@ -411,12 +411,12 @@ jobs:
 
           # Wait for task to complete (10 minute timeout)
           aws ecs wait tasks-stopped \
-            --cluster ${ENV}-family-budget-cluster \
+            --cluster ${ENV}-wumbo-cluster \
             --tasks $TASK_ARN
 
           # Check exit code
           EXIT_CODE=$(aws ecs describe-tasks \
-            --cluster ${ENV}-family-budget-cluster \
+            --cluster ${ENV}-wumbo-cluster \
             --tasks $TASK_ARN \
             --query 'tasks[0].containers[0].exitCode' \
             --output text)
@@ -456,8 +456,8 @@ jobs:
           echo "🚀 Deploying Backend service..."
 
           aws ecs update-service \
-            --cluster ${ENV}-family-budget-cluster \
-            --service ${ENV}-family-budget-backend \
+            --cluster ${ENV}-wumbo-cluster \
+            --service ${ENV}-wumbo-backend \
             --force-new-deployment
 
           echo "✅ Backend deployment initiated"
@@ -469,8 +469,8 @@ jobs:
           echo "🚀 Deploying Frontend service..."
 
           aws ecs update-service \
-            --cluster ${ENV}-family-budget-cluster \
-            --service ${ENV}-family-budget-frontend \
+            --cluster ${ENV}-wumbo-cluster \
+            --service ${ENV}-wumbo-frontend \
             --force-new-deployment
 
           echo "✅ Frontend deployment initiated"
@@ -482,8 +482,8 @@ jobs:
           echo "🚀 Deploying Worker service..."
 
           aws ecs update-service \
-            --cluster ${ENV}-family-budget-cluster \
-            --service ${ENV}-family-budget-worker \
+            --cluster ${ENV}-wumbo-cluster \
+            --service ${ENV}-wumbo-worker \
             --force-new-deployment
 
           echo "✅ Worker deployment initiated"
@@ -496,21 +496,21 @@ jobs:
           SERVICES=""
 
           if [ "${{ needs.detect-changes.outputs.backend }}" == "true" ]; then
-            SERVICES="${ENV}-family-budget-backend"
+            SERVICES="${ENV}-wumbo-backend"
           fi
 
           if [ "${{ needs.detect-changes.outputs.web }}" == "true" ] || [ "${{ needs.detect-changes.outputs.ui }}" == "true" ]; then
-            SERVICES="$SERVICES ${ENV}-family-budget-frontend"
+            SERVICES="$SERVICES ${ENV}-wumbo-frontend"
           fi
 
           if [ "${{ needs.detect-changes.outputs.worker }}" == "true" ] || [ "${{ needs.detect-changes.outputs.backend }}" == "true" ]; then
-            SERVICES="$SERVICES ${ENV}-family-budget-worker"
+            SERVICES="$SERVICES ${ENV}-wumbo-worker"
           fi
 
           if [ -n "$SERVICES" ]; then
             echo "Waiting for: $SERVICES"
             aws ecs wait services-stable \
-              --cluster ${ENV}-family-budget-cluster \
+              --cluster ${ENV}-wumbo-cluster \
               --services $SERVICES
             echo "✅ All services are stable"
           else
@@ -538,7 +538,7 @@ jobs:
 
           # Get backend URL from Parameter Store
           BACKEND_URL=$(aws ssm get-parameter \
-            --name "/${ENV}/family-budget/backend-url" \
+            --name "/${ENV}/wumbo/backend-url" \
             --query 'Parameter.Value' \
             --output text) || true
 
@@ -561,7 +561,7 @@ jobs:
           ENV=${{ needs.determine-environment.outputs.environment }}
 
           FRONTEND_URL=$(aws ssm get-parameter \
-            --name "/${ENV}/family-budget/frontend-url" \
+            --name "/${ENV}/wumbo/frontend-url" \
             --query 'Parameter.Value' \
             --output text) || true
 

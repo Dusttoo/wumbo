@@ -1,0 +1,252 @@
+name: Mobile App CI/CD (EAS Build)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/**'
+      - '.github/workflows/mobile-build.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/**'
+      - '.github/workflows/mobile-build.yml'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Build profile (development, preview, production)'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+      platform:
+        description: 'Platform to build (ios, android, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - ios
+          - android
+          - all
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  test:
+    name: Test and Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          cd ../..
+          npm ci
+
+      - name: Run linting
+        run: npm run lint --workspace=@wumbo/mobile
+
+      - name: Run type check
+        run: npm run type-check --workspace=@wumbo/mobile
+
+      # Note: Add tests when available
+      # - name: Run tests
+      #   run: npm test --workspace=@wumbo/mobile
+
+  build:
+    name: EAS Build
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine build profile and platform
+        id: build-config
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            PROFILE="${{ github.event.inputs.profile }}"
+            PLATFORM="${{ github.event.inputs.platform }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            PROFILE="production"
+            PLATFORM="all"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            PROFILE="preview"
+            PLATFORM="all"
+          else
+            PROFILE="development"
+            PLATFORM="all"
+          fi
+
+          echo "profile=$PROFILE" >> $GITHUB_OUTPUT
+          echo "platform=$PLATFORM" >> $GITHUB_OUTPUT
+          echo "Building with profile: $PROFILE, platform: $PLATFORM"
+
+      - name: Build iOS
+        if: steps.build-config.outputs.platform == 'ios' || steps.build-config.outputs.platform == 'all'
+        working-directory: apps/mobile
+        run: |
+          eas build --profile ${{ steps.build-config.outputs.profile }} --platform ios --non-interactive --no-wait
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+
+      - name: Build Android
+        if: steps.build-config.outputs.platform == 'android' || steps.build-config.outputs.platform == 'all'
+        working-directory: apps/mobile
+        run: |
+          eas build --profile ${{ steps.build-config.outputs.profile }} --platform android --non-interactive --no-wait
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+
+      - name: Comment PR with build info
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '📱 EAS Build started for profile: **${{ steps.build-config.outputs.profile }}**\n\nCheck build status at https://expo.dev'
+            })
+
+  submit:
+    name: Submit to App Stores
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Submit to App Store (iOS)
+        working-directory: apps/mobile
+        run: |
+          eas submit --profile production --platform ios --non-interactive --latest
+        continue-on-error: true
+
+      - name: Submit to Google Play (Android)
+        working-directory: apps/mobile
+        run: |
+          eas submit --profile production --platform android --non-interactive --latest
+        continue-on-error: true
+
+      - name: Notify submission status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ App store submissions completed!"
+          else
+            echo "⚠️ Some app store submissions may have failed. Check logs for details."
+          fi
+
+  publish-update:
+    name: Publish OTA Update
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine branch
+        id: branch
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "branch=development" >> $GITHUB_OUTPUT
+            echo "message=Development update from commit ${{ github.sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+            echo "message=Update from branch ${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish update
+        working-directory: apps/mobile
+        run: |
+          eas update --branch ${{ steps.branch.outputs.branch }} --message "${{ steps.branch.outputs.message }}" --non-interactive
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+
+      - name: Notify update status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ OTA update published to branch: ${{ steps.branch.outputs.branch }}"
+          else
+            echo "❌ OTA update failed!"
+          fi

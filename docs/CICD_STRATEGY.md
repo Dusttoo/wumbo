@@ -1,6 +1,6 @@
-# Family Budget App - CI/CD Strategy
+# Wumbo App - CI/CD Strategy
 
-This document outlines the comprehensive CI/CD pipeline strategy for the Family Budget application.
+This document outlines the comprehensive CI/CD pipeline strategy for the Wumbo application.
 
 ## Overview
 
@@ -356,10 +356,10 @@ build-and-push:
         ENV=${{ needs.determine-environment.outputs.environment }}
         ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
         REGION=${{ vars.AWS_REGION }}
-        echo "backend=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ENV}/family-budget/backend" >> $GITHUB_OUTPUT
-        echo "frontend=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ENV}/family-budget/frontend" >> $GITHUB_OUTPUT
-        echo "worker=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ENV}/family-budget/worker" >> $GITHUB_OUTPUT
-        echo "migrations=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ENV}/family-budget/migrations" >> $GITHUB_OUTPUT
+        echo "backend=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ENV}/wumbo/backend" >> $GITHUB_OUTPUT
+        echo "frontend=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ENV}/wumbo/frontend" >> $GITHUB_OUTPUT
+        echo "worker=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ENV}/wumbo/worker" >> $GITHUB_OUTPUT
+        echo "migrations=${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ENV}/wumbo/migrations" >> $GITHUB_OUTPUT
 
     - name: Build and push Backend image
       if: needs.detect-changes.outputs.backend == 'true'
@@ -446,8 +446,8 @@ run-migrations:
 
         # Run one-off ECS task for migrations
         TASK_ARN=$(aws ecs run-task \
-          --cluster ${ENV}-family-budget-cluster \
-          --task-definition ${ENV}-family-budget-migrations \
+          --cluster ${ENV}-wumbo-cluster \
+          --task-definition ${ENV}-wumbo-migrations \
           --launch-type FARGATE \
           --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx],securityGroups=[sg-xxx],assignPublicIp=DISABLED}" \
           --query 'tasks[0].taskArn' \
@@ -457,12 +457,12 @@ run-migrations:
 
         # Wait for task to complete
         aws ecs wait tasks-stopped \
-          --cluster ${ENV}-family-budget-cluster \
+          --cluster ${ENV}-wumbo-cluster \
           --tasks $TASK_ARN
 
         # Check exit code
         EXIT_CODE=$(aws ecs describe-tasks \
-          --cluster ${ENV}-family-budget-cluster \
+          --cluster ${ENV}-wumbo-cluster \
           --tasks $TASK_ARN \
           --query 'tasks[0].containers[0].exitCode' \
           --output text)
@@ -500,8 +500,8 @@ deploy-services:
         echo "🚀 Deploying Backend service..."
 
         aws ecs update-service \
-          --cluster ${ENV}-family-budget-cluster \
-          --service ${ENV}-family-budget-backend \
+          --cluster ${ENV}-wumbo-cluster \
+          --service ${ENV}-wumbo-backend \
           --force-new-deployment \
           --region ${{ vars.AWS_REGION }}
 
@@ -514,8 +514,8 @@ deploy-services:
         echo "🚀 Deploying Frontend service..."
 
         aws ecs update-service \
-          --cluster ${ENV}-family-budget-cluster \
-          --service ${ENV}-family-budget-frontend \
+          --cluster ${ENV}-wumbo-cluster \
+          --service ${ENV}-wumbo-frontend \
           --force-new-deployment \
           --region ${{ vars.AWS_REGION }}
 
@@ -528,8 +528,8 @@ deploy-services:
         echo "🚀 Deploying Worker service..."
 
         aws ecs update-service \
-          --cluster ${ENV}-family-budget-cluster \
-          --service ${ENV}-family-budget-worker \
+          --cluster ${ENV}-wumbo-cluster \
+          --service ${ENV}-wumbo-worker \
           --force-new-deployment \
           --region ${{ vars.AWS_REGION }}
 
@@ -543,21 +543,21 @@ deploy-services:
         SERVICES=""
 
         if [ "${{ needs.detect-changes.outputs.backend }}" == "true" ]; then
-          SERVICES="$SERVICES ${ENV}-family-budget-backend"
+          SERVICES="$SERVICES ${ENV}-wumbo-backend"
         fi
 
         if [ "${{ needs.detect-changes.outputs.web }}" == "true" ] || [ "${{ needs.detect-changes.outputs.ui }}" == "true" ]; then
-          SERVICES="$SERVICES ${ENV}-family-budget-frontend"
+          SERVICES="$SERVICES ${ENV}-wumbo-frontend"
         fi
 
         if [ "${{ needs.detect-changes.outputs.worker }}" == "true" ] || [ "${{ needs.detect-changes.outputs.backend }}" == "true" ]; then
-          SERVICES="$SERVICES ${ENV}-family-budget-worker"
+          SERVICES="$SERVICES ${ENV}-wumbo-worker"
         fi
 
         if [ -n "$SERVICES" ]; then
           echo "Waiting for: $SERVICES"
           aws ecs wait services-stable \
-            --cluster ${ENV}-family-budget-cluster \
+            --cluster ${ENV}-wumbo-cluster \
             --services $SERVICES \
             --region ${{ vars.AWS_REGION }}
           echo "✅ All services are stable"
@@ -591,7 +591,7 @@ post-deployment-validation:
 
         # Get backend URL from AWS (ALB or domain)
         BACKEND_URL=$(aws ssm get-parameter \
-          --name "/${ENV}/family-budget/backend-url" \
+          --name "/${ENV}/wumbo/backend-url" \
           --query 'Parameter.Value' \
           --output text)
 
@@ -611,7 +611,7 @@ post-deployment-validation:
         ENV=${{ needs.determine-environment.outputs.environment }}
 
         FRONTEND_URL=$(aws ssm get-parameter \
-          --name "/${ENV}/family-budget/frontend-url" \
+          --name "/${ENV}/wumbo/frontend-url" \
           --query 'Parameter.Value' \
           --output text)
 
@@ -853,23 +853,23 @@ Not implemented - manual rollback required.
 ```bash
 # 1. Identify last known good deployment
 aws ecs describe-services \
-  --cluster production-family-budget-cluster \
-  --services production-family-budget-backend
+  --cluster production-wumbo-cluster \
+  --services production-wumbo-backend
 
 # 2. Get task definition ARN of previous version
 PREVIOUS_TASK_DEF="arn:aws:ecs:..."
 
 # 3. Update service to previous task definition
 aws ecs update-service \
-  --cluster production-family-budget-cluster \
-  --service production-family-budget-backend \
+  --cluster production-wumbo-cluster \
+  --service production-wumbo-backend \
   --task-definition $PREVIOUS_TASK_DEF \
   --force-new-deployment
 
 # 4. Wait for rollback to complete
 aws ecs wait services-stable \
-  --cluster production-family-budget-cluster \
-  --services production-family-budget-backend
+  --cluster production-wumbo-cluster \
+  --services production-wumbo-backend
 ```
 
 ### Database Rollback

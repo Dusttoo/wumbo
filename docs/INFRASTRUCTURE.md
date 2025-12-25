@@ -1,6 +1,6 @@
-# Family Budget App - Infrastructure Architecture
+# Wumbo App - Infrastructure Architecture
 
-This document outlines the CDK infrastructure structure, following the proven patterns from cipher-dnd-bot but tailored for the family budget application.
+This document outlines the CDK infrastructure structure, following the proven patterns from cipher-dnd-bot but tailored for the Wumbo application.
 
 ## Infrastructure Overview
 
@@ -51,10 +51,10 @@ infrastructure/
 - VPC Flow Logs (staging/production only)
 - KMS encryption keys (production only)
 - Secrets Manager secrets:
-  - `{env}/family-budget/database` - DB credentials
-  - `{env}/family-budget/plaid` - Plaid API keys
-  - `{env}/family-budget/jwt` - JWT signing keys
-  - `{env}/family-budget/external-services` - Other API keys
+  - `{env}/wumbo/database` - DB credentials
+  - `{env}/wumbo/plaid` - Plaid API keys
+  - `{env}/wumbo/jwt` - JWT signing keys
+  - `{env}/wumbo/external-services` - Other API keys
 
 **Exports**:
 - VPC ID and subnet IDs
@@ -74,10 +74,10 @@ infrastructure/
 
 **Resources**:
 - ECR repositories:
-  - `{env}/family-budget/backend` - FastAPI backend
-  - `{env}/family-budget/frontend` - Next.js web frontend
-  - `{env}/family-budget/worker` - Celery worker
-  - `{env}/family-budget/migrations` - Alembic migration runner
+  - `{env}/wumbo/backend` - FastAPI backend
+  - `{env}/wumbo/frontend` - Next.js web frontend
+  - `{env}/wumbo/worker` - Celery worker
+  - `{env}/wumbo/migrations` - Alembic migration runner
 
 **Repository Settings**:
 - Image scanning on push
@@ -96,12 +96,12 @@ infrastructure/
 
 **Resources**:
 - S3 buckets:
-  - `{env}-family-budget-exports` - CSV/PDF exports
+  - `{env}-wumbo-exports` - CSV/PDF exports
     - Lifecycle: Delete after 30 days
     - CORS enabled for web uploads
-  - `{env}-family-budget-receipts` - Receipt photo uploads
+  - `{env}-wumbo-receipts` - Receipt photo uploads
     - Lifecycle: Transition to Glacier after 90 days
-  - `{env}-family-budget-backups` - Database backups
+  - `{env}-wumbo-backups` - Database backups
     - Lifecycle: Retain 30 days, then delete
     - Versioning enabled (production)
 
@@ -135,7 +135,7 @@ infrastructure/
 - Multi-AZ deployment (production only)
 
 **Database Configuration**:
-- Database name: `family_budget`
+- Database name: `wumbo`
 - Username: `dbadmin` (stored in Secrets Manager)
 - SSL/TLS required connections
 - CloudWatch log exports (PostgreSQL logs)
@@ -179,7 +179,7 @@ infrastructure/
 **Purpose**: DNS and SSL certificates
 **Dependencies**: None (optional stack - only created if domain configured)
 
-**Important**: This stack is **completely optional**. The application works perfectly without a custom domain using ALB DNS names.
+**Important**: We will need to set it up to use the domain wumbo.app in hosted zone Z05190341LEXYF4VYE6HT
 
 **When to Use**:
 - ✅ You have a domain registered (Route53 or external registrar)
@@ -310,10 +310,10 @@ infrastructure/
 - Command override: `alembic upgrade head`
 
 **Service Discovery**:
-- CloudMap private namespace: `{env}.family-budget.local`
+- CloudMap private namespace: `{env}.wumbo.local`
 - Services:
-  - `backend.{env}.family-budget.local`
-  - `worker.{env}.family-budget.local`
+  - `backend.{env}.wumbo.local`
+  - `worker.{env}.wumbo.local`
 
 **Exports**:
 - Cluster ARN
@@ -391,14 +391,14 @@ infrastructure/
   - Data retention: 15 days
   - Service discovery via CloudMap
 - **Scraping targets** (via DNS service discovery):
-  - `backend.{env}.family-budget.local:8000/metrics`
-  - `frontend.{env}.family-budget.local:3000/metrics`
-  - `worker.{env}.family-budget.local:8000/metrics`
-  - `postgres-exporter.{env}.family-budget.local:9187/metrics`
-  - `redis-exporter.{env}.family-budget.local:9121/metrics`
+  - `backend.{env}.wumbo.local:8000/metrics`
+  - `frontend.{env}.wumbo.local:3000/metrics`
+  - `worker.{env}.wumbo.local:8000/metrics`
+  - `postgres-exporter.{env}.wumbo.local:9187/metrics`
+  - `redis-exporter.{env}.wumbo.local:9121/metrics`
 - **Task count**: 1 (not auto-scaled)
 - **Access**:
-  - Internal via CloudMap: `prometheus.{env}.family-budget.local:9090`
+  - Internal via CloudMap: `prometheus.{env}.wumbo.local:9090`
   - External via ALB: `prometheus.{domain}` (if domain configured)
   - Fallback: ALB DNS name
 
@@ -444,7 +444,7 @@ infrastructure/
      - Active households
 - **Task count**: 1 (not auto-scaled)
 - **Access**:
-  - Internal via CloudMap: `grafana.{env}.family-budget.local:3000`
+  - Internal via CloudMap: `grafana.{env}.wumbo.local:3000`
   - External via ALB: `grafana.{domain}` (if domain configured)
   - Fallback: ALB DNS name
 
@@ -640,7 +640,7 @@ constructs>=10.0.0,<11.0.0
 ENV ?= development
 
 help:
-    @echo "Family Budget App - Infrastructure Management"
+    @echo "Wumbo App - Infrastructure Management"
     @echo ""
     @echo "Available commands:"
     @echo "  make install          - Install CDK dependencies"
@@ -750,7 +750,7 @@ watch:
 
 ```python
 #!/usr/bin/env python3
-"""CDK app for Family Budget infrastructure"""
+"""CDK app for Wumbo infrastructure"""
 
 import os
 import aws_cdk as cdk
@@ -790,7 +790,7 @@ cdk.Tags.of(app).add("Project", "FamilyBudget")
 cdk.Tags.of(app).add("Environment", environment)
 cdk.Tags.of(app).add("ManagedBy", "CDK")
 
-print(f"🚀 Deploying Family Budget infrastructure for {environment}")
+print(f"🚀 Deploying Wumbo infrastructure for {environment}")
 print(f"📍 Region: {region}")
 print(f"🔑 Account: {account}")
 print(f"💳 Plaid: {plaid_environment}")
@@ -922,7 +922,7 @@ All secrets are managed via AWS Secrets Manager and populated using `scripts/pop
 
 ### Required Secrets
 
-1. **Database Credentials** - `{env}/family-budget/database`
+1. **Database Credentials** - `{env}/wumbo/database`
    ```json
    {
      "username": "dbadmin",
@@ -930,11 +930,11 @@ All secrets are managed via AWS Secrets Manager and populated using `scripts/pop
      "engine": "postgres",
      "host": "<rds-endpoint>",
      "port": 5432,
-     "dbname": "family_budget"
+     "dbname": "wumbo"
    }
    ```
 
-2. **Plaid API Keys** - `{env}/family-budget/plaid`
+2. **Plaid API Keys** - `{env}/wumbo/plaid`
    ```json
    {
      "client_id": "<plaid-client-id>",
@@ -943,7 +943,7 @@ All secrets are managed via AWS Secrets Manager and populated using `scripts/pop
    }
    ```
 
-3. **JWT Configuration** - `{env}/family-budget/jwt`
+3. **JWT Configuration** - `{env}/wumbo/jwt`
    ```json
    {
      "secret_key": "<generated-256-bit-key>",
@@ -953,7 +953,7 @@ All secrets are managed via AWS Secrets Manager and populated using `scripts/pop
    }
    ```
 
-4. **External Services** - `{env}/family-budget/external-services`
+4. **External Services** - `{env}/wumbo/external-services`
    ```json
    {
      "sendgrid_api_key": "<optional>",
@@ -1118,4 +1118,4 @@ All secrets are managed via AWS Secrets Manager and populated using `scripts/pop
 
 ---
 
-*This infrastructure plan is based on proven patterns from cipher-dnd-bot, adapted for the Family Budget application's specific requirements.*
+*This infrastructure plan is based on proven patterns from cipher-dnd-bot, adapted for the Wumbo application's specific requirements.*

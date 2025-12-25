@@ -1,4 +1,4 @@
-# Family Budget App - Design System
+# Wumbo App - Design System
 
 > **Note**: This document will be finalized during Phase 1 implementation. The structure below provides a framework for maintaining consistent design across web and mobile platforms.
 

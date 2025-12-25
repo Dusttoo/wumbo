@@ -1,6 +1,6 @@
 module.exports = {
   root: true,
-  extends: ['@family-budget/config/eslint/base'],
+  extends: ['@wumbo/config/eslint/base'],
   ignorePatterns: [
     'node_modules/',
     'dist/',

@@ -1,5 +1,5 @@
 {
-  "name": "@family-budget/ui",
+  "name": "@wumbo/ui",
   "version": "0.1.0",
   "private": true,
   "description": "Shared UI components for web and mobile",
@@ -27,20 +27,16 @@
     "test:ci": "jest --ci --coverage",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-native": "^0.73.0"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@family-budget/types": "*",
-    "@family-budget/config": "*",
-    "@types/react": "^18.2.45",
-    "@types/react-native": "^0.73.0",
+    "@wumbo/types": "*",
+    "@wumbo/config": "*",
+    "@types/react": "^19",
     "tsup": "^8.0.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5"
   },
   "peerDependencies": {
-    "react": "^18.2.0",
-    "react-native": "^0.73.0"
+    "react": "^18.0.0 || ^19.0.0",
+    "react-native": "^0.75.0 || ^0.76.0 || ^0.81.0"
   }
 }

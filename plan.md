@@ -1,7 +1,7 @@
-# Family Budget App - Implementation Plan
+# Wumbo App - Implementation Plan
 
 ## Vision
-A comprehensive family budget management platform that helps households track spending, manage bills, set savings goals, and gain financial clarity through automated bank connections and intuitive interfaces.
+A comprehensive Wumbo management platform that helps households track spending, manage bills, set savings goals, and gain financial clarity through automated bank connections and intuitive interfaces.
 
 ## Project Goals
 - **Primary Users**: Personal use initially, with architecture for public offering
@@ -16,14 +16,15 @@ A comprehensive family budget management platform that helps households track sp
 ### Infrastructure (AWS)
 - **Hosting**: AWS Amplify (frontend) + ECS Fargate (backend)
 - **Infrastructure as Code**: AWS CDK (Python 3.11+) - modular stack architecture
-- **Database**: Amazon RDS PostgreSQL
-- **Storage**: S3 for file uploads/exports
+- **Database**: Amazon RDS PostgreSQL 16 (Graviton instances)
+- **Storage**: S3 for file uploads/exports, EFS for monitoring data
 - **Notifications**:
   - Amazon SES (email)
-  - Amazon SNS (push notifications)
-- **Cache**: Amazon ElastiCache (Redis) for sessions and rate limiting
-- **Secrets Management**: AWS Secrets Manager
-- **Monitoring**: CloudWatch + CloudWatch Logs
+  - Amazon SNS (push notifications and alarms)
+- **Cache**: Amazon ElastiCache Redis 7.1 for sessions, rate limiting, and Celery broker
+- **Secrets Management**: AWS Secrets Manager with KMS encryption
+- **DNS & SSL**: Route53 hosted zones + ACM SSL certificates
+- **Monitoring**: Prometheus + Grafana + CloudWatch Alarms + CloudWatch Logs
 
 **Note**: Infrastructure follows proven patterns from cipher-dnd-bot project. See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for detailed architecture.
 
@@ -295,29 +296,27 @@ packages/
           └──────────────────┘
 ```
 
-### CDK Structure (Python-based)
+### CDK Structure (Python-based) ✅ IMPLEMENTED
 ```
 infrastructure/
 ├── stacks/
 │   ├── __init__.py
-│   ├── security_stack.py         # VPC, Secrets, KMS
-│   ├── database_stack.py         # RDS PostgreSQL
-│   ├── cache_stack.py            # ElastiCache Redis
-│   ├── ecr_stack.py              # Container registries
-│   ├── storage_stack.py          # S3 buckets
-│   ├── dns_stack.py              # Route53, ACM certificates
-│   ├── compute_stack.py          # ECS Fargate (backend, frontend, worker)
-│   ├── notification_stack.py     # SES, SNS
-│   ├── monitoring_stack.py       # CloudWatch alarms, dashboard
-│   └── iam_policies.py           # Shared IAM policy definitions
+│   ├── security_stack.py         # ✅ VPC, Secrets Manager, KMS encryption
+│   ├── ecr_stack.py              # ✅ Container registries for Docker images
+│   ├── database_stack.py         # ✅ RDS PostgreSQL 16 with Graviton
+│   ├── cache_stack.py            # ✅ ElastiCache Redis 7.1
+│   ├── dns_stack.py              # ✅ Route53 hosted zones, ACM SSL certificates
+│   ├── compute_stack.py          # ✅ ECS Fargate (backend, worker, beat, migrations)
+│   ├── monitoring_stack.py       # ✅ Prometheus, Grafana, CloudWatch, SNS
+│   └── (storage/notification)    # Future: S3 buckets, SES setup
 ├── scripts/
-│   ├── populate-secrets.py       # Secrets management utility
-│   └── verify-deployment.py      # Post-deployment verification
-├── app.py                        # Main CDK app entry point
-├── requirements.txt              # Python dependencies
-├── cdk.json                      # CDK configuration
-├── Makefile                      # Deployment shortcuts
-└── README.md                     # Setup instructions
+│   ├── run-migration-task.sh     # ✅ ECS migration task runner
+│   └── (future utilities)
+├── app.py                        # ✅ Main CDK app entry point
+├── requirements.txt              # ✅ Python dependencies
+├── cdk.json                      # ✅ CDK configuration with env-specific settings
+├── README.md                     # ✅ Complete setup and deployment guide
+└── MONITORING.md                 # ✅ Prometheus/Grafana documentation
 ```
 
 See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for complete infrastructure documentation including:
@@ -333,25 +332,31 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for complete infrastructure documen
 
 ### Phase 1: Foundation (Weeks 1-3)
 
-**Infrastructure Setup**
-- [ ] Initialize monorepo (Turborepo)
-- [ ] Set up AWS CDK project
-- [ ] Deploy VPC and networking
-- [ ] Deploy RDS PostgreSQL (dev environment)
-- [ ] Deploy Redis cache
-- [ ] **Set up CI/CD pipeline (GitHub Actions)** - See [CI/CD Strategy](./docs/CICD_STRATEGY.md)
-  - Configure main deployment workflow (deploy.yml)
-  - Configure PR checks workflow (pr.yml)
-  - Configure mobile app build workflow (mobile.yml)
-  - Set up GitHub environments (dev, staging, production)
-  - Configure AWS credentials and secrets
-  - Test deployment to development environment
+**Infrastructure Setup** ✅ COMPLETE
+- [x] Initialize monorepo (Turborepo)
+- [x] Set up AWS CDK project (7 stacks implemented)
+- [x] Deploy VPC and networking (SecurityStack)
+- [x] Deploy RDS PostgreSQL 16 with Graviton instances (DatabaseStack)
+- [x] Deploy Redis 7.1 ElastiCache (CacheStack)
+- [x] Deploy ECR container registries (EcrStack)
+- [x] Deploy Route53 + ACM SSL certificates (DnsStack - optional)
+- [x] Deploy ECS Fargate services (ComputeStack)
+- [x] Deploy Prometheus + Grafana monitoring (MonitoringStack)
+- [x] Implement automated database migrations (ECS task + GitHub Actions)
+- [x] **Set up CI/CD pipeline (GitHub Actions)** - See [CI/CD Strategy](./docs/CICD_STRATEGY.md)
+  - [x] Configure migration workflow (run-migrations.yml)
+  - [ ] Configure main deployment workflow (deploy.yml) - TODO
+  - [ ] Configure PR checks workflow (pr.yml) - TODO
+  - [x] Configure mobile app build workflow (eas.json + Makefile)
+  - [ ] Set up GitHub environments (dev, staging, production) - TODO
+  - [ ] Configure AWS credentials and secrets - TODO
+  - [ ] Test deployment to development environment - TODO
 
 **Backend Foundation**
-- [ ] Initialize FastAPI project structure
-- [ ] Set up SQLAlchemy models
-- [ ] Create Alembic migration system
-- [ ] Implement JWT authentication system
+- [x] Initialize FastAPI project structure
+- [x] Set up SQLAlchemy models
+- [x] Create Alembic migration system
+- [x] Implement JWT authentication system
   - User registration
   - Login/logout
   - Token refresh
@@ -361,8 +366,8 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for complete infrastructure documen
 - [ ] Configure logging and error handling
 
 **Frontend Foundation**
-- [ ] Initialize Next.js project (App Router)
-- [ ] Initialize React Native project (Expo)
+- [x] Initialize Next.js project (App Router)
+- [x] Initialize React Native project (Expo)
 - [ ] Set up shared UI component library (`packages/ui`)
   - Create design tokens (colors, spacing, typography)
   - Define design standards document
@@ -377,7 +382,7 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for complete infrastructure documen
 - [ ] Set up API client with auth interceptors
 
 **Design System**
-- [ ] Create design standards document (to be finalized during implementation)
+- [x] Create design standards document (to be finalized during implementation)
   - Color palette definition
   - Typography scale
   - Spacing system
@@ -395,7 +400,7 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for complete infrastructure documen
 ### Phase 2: Core Account & Transaction Features (Weeks 4-6)
 
 **Backend**
-- [ ] Implement Plaid integration
+- [x] Implement Plaid integration
   - Link Token creation
   - Public Token exchange
   - Account/transaction sync
@@ -515,14 +520,15 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for complete infrastructure documen
 
 ### Phase 6: Deployment & Launch Prep (Week 16+)
 
-**Infrastructure**
-- [ ] Production environment setup
-- [ ] SSL certificates
-- [ ] Domain configuration
-- [ ] CloudFront CDN setup
-- [ ] Monitoring and alerting
-- [ ] Backup verification
-- [ ] Disaster recovery plan
+**Infrastructure** 🚧 IN PROGRESS
+- [x] Production environment setup (7 CDK stacks ready)
+- [x] SSL certificates (ACM with DNS validation)
+- [x] Domain configuration (Route53 hosted zones)
+- [ ] CloudFront CDN setup (future optimization)
+- [x] Monitoring and alerting (Prometheus + Grafana + CloudWatch)
+- [x] Database migration automation (ECS task + GitHub Actions)
+- [ ] Backup verification (RDS automated backups configured, needs testing)
+- [ ] Disaster recovery plan (needs documentation)
 
 **Launch Preparation**
 - [ ] User documentation
@@ -545,10 +551,13 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for complete infrastructure documen
 - 2FA option (future enhancement)
 - Session invalidation on password change
 
-### Data Protection
-- Encryption at rest (RDS, S3)
-- Encryption in transit (TLS 1.3)
-- Sensitive data encryption in DB (bank tokens)
+### Data Protection ✅ ENHANCED
+- Encryption at rest (RDS, S3, EFS with KMS)
+- Encryption in transit (TLS 1.3 with ACM certificates)
+- ✅ **Fernet encryption for sensitive data** (bank access tokens)
+  - Symmetric encryption using cryptography library
+  - Automatic encryption/decryption via SQLAlchemy TypeDecorator
+  - Encryption keys stored in AWS Secrets Manager
 - Regular security patches
 - Principle of least privilege (IAM roles)
 - Input validation and sanitization
@@ -556,8 +565,12 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for complete infrastructure documen
 - XSS prevention
 - CSRF protection
 
-### Plaid Security
-- Store access tokens encrypted
+### Plaid Security ✅ IMPLEMENTED
+- ✅ **Store access tokens encrypted** (Fernet encryption in database)
+- ✅ **Webhook signature verification** (JWT verification with body hash)
+  - Validates webhook authenticity
+  - Prevents replay attacks (timestamp checking)
+  - Ensures request integrity (SHA-256 body hash)
 - Use Plaid webhooks for real-time updates
 - Handle token rotation
 - Monitor for unusual API usage
@@ -621,7 +634,27 @@ GitHub Push →
 
 ---
 
-## Monitoring & Observability
+## Monitoring & Observability ✅ IMPLEMENTED
+
+### Monitoring Stack (Prometheus + Grafana)
+- ✅ **Prometheus** - Time-series metrics collection and storage
+  - 15-day metrics retention
+  - Service discovery via AWS Cloud Map
+  - EFS persistent storage
+  - Scrapes backend, worker, and beat services
+- ✅ **Grafana** - Metrics visualization and dashboarding
+  - Public access via Application Load Balancer
+  - Pre-configured Prometheus data source
+  - EFS persistent storage for dashboards
+  - Default admin credentials (changeme - must update!)
+- ✅ **CloudWatch Alarms** - Automated alerting
+  - Backend CPU > 80%
+  - Backend Memory > 80%
+  - Database CPU > 80%
+  - Database Connections > 80
+- ✅ **SNS Notifications** - Email alerts for critical events
+  - Configurable per environment
+  - Extensible to Slack, PagerDuty, etc.
 
 ### Metrics to Track
 - API response times (p50, p95, p99)
@@ -631,45 +664,62 @@ GitHub Push →
 - User sign-ups and active users
 - Transaction sync success rates
 - Notification delivery rates
+- ECS task health and resource utilization
+- Database connections and query performance
+- Redis cache hit rates
 
-### Alerts
-- API error rate > 5%
-- Database CPU > 80%
-- Failed Plaid syncs
-- High notification bounce rates
-- Security events (failed auth attempts)
+### CloudWatch Logs
+- `/aws/ecs/{env}-wumbo-cluster/backend` - Backend API logs
+- `/aws/ecs/{env}-wumbo-cluster/worker` - Celery worker logs
+- `/aws/ecs/{env}-wumbo-cluster/beat` - Celery beat scheduler logs
+- `/aws/ecs/{env}-wumbo-cluster/migration` - Database migration logs
+- `/aws/ecs/{env}-wumbo-cluster/prometheus` - Prometheus logs
+- `/aws/ecs/{env}-wumbo-cluster/grafana` - Grafana logs
 
 ### Logging
 - Structured JSON logs
 - Log levels: DEBUG (dev), INFO (staging), WARN/ERROR (prod)
 - Request/response logging (sanitized)
 - Performance logging for slow queries
+- 7-day retention for cost optimization
 
 ---
 
-## Cost Estimates (Monthly)
+## Cost Estimates (Monthly) - UPDATED
 
-### AWS (Low traffic - personal use)
-- RDS PostgreSQL (db.t4g.micro): ~$15
-- ECS Fargate (2 tasks): ~$30
-- Amplify Hosting: ~$10
-- ElastiCache (cache.t4g.micro): ~$12
-- Data Transfer: ~$5
-- CloudWatch: ~$5
-- **Total AWS**: ~$77/month
+### AWS Development Environment
+- NAT Gateway: ~$32/month
+- RDS PostgreSQL t4g.micro: ~$12/month
+- ElastiCache t4g.micro: ~$12/month
+- ECS Fargate (5 services): ~$40-50/month
+- EFS (monitoring): ~$5/month
+- CloudWatch Logs: ~$5/month
+- **Total AWS (Development)**: ~$100-110/month
+
+### AWS Production Environment
+- NAT Gateways (2 for HA): ~$64/month
+- RDS PostgreSQL t4g.small (Multi-AZ): ~$50/month
+- ElastiCache r7g.large: ~$106/month
+- ECS Fargate (8-12 tasks): ~$120-180/month
+- EFS (monitoring): ~$10/month
+- ALB (Grafana): ~$16/month
+- CloudWatch: ~$10/month
+- Route53 + ACM: ~$1/month (if using custom domain)
+- **Total AWS (Production)**: ~$370-430/month
 
 ### Third-Party Services
 - Plaid (Development): Free (100 items)
 - Plaid (Production): $0.25-1/account/month
-- Domain: ~$12/year
-- **Estimate for 2 users**: ~$77-80/month
+- Domain: ~$12/year (~$1/month)
+- **Estimate for 2 users (Production)**: ~$380-440/month
 
 ### Scaling Costs (100 households ~300 users)
-- Larger RDS instance: ~$50-100
-- More ECS capacity: ~$100-150
-- ElastiCache upgrade: ~$25
+- Larger RDS instance (r7g.large Multi-AZ): ~$200
+- More ECS capacity (auto-scaling): ~$300-400
+- ElastiCache (larger instance): ~$150
 - Plaid costs: ~$150-300 (assuming avg 2 accounts/user)
-- **Total**: ~$325-575/month
+- Additional monitoring/logging: ~$50
+- **Total**: ~$850-1,100/month
 
 ---
 
@@ -742,7 +792,7 @@ GitHub Push →
 ### Initial Setup Commands
 ```bash
 # Clone repository structure
-mkdir family-budget && cd family-budget
+mkdir wumbo && cd wumbo
 
 # Initialize monorepo
 npx create-turbo@latest

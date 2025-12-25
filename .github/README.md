@@ -1,6 +1,6 @@
 # GitHub Actions Workflows
 
-This directory contains the CI/CD workflows for the Family Budget application.
+This directory contains the CI/CD workflows for the Wumbo application.
 
 ## Workflows
 
@@ -130,7 +130,7 @@ Example custom policy:
         "ssm:GetParameter",
         "ssm:GetParameters"
       ],
-      "Resource": "arn:aws:ssm:*:*:parameter/*-family-budget/*"
+      "Resource": "arn:aws:ssm:*:*:parameter/*-wumbo/*"
     },
     {
       "Effect": "Allow",
@@ -225,8 +225,8 @@ Go to Actions tab → Mobile App Build → Run workflow
 **Solution**:
 1. Ensure infrastructure is deployed first
 2. Check that Parameter Store has these keys:
-   - `/{env}/family-budget/private-subnets`
-   - `/{env}/family-budget/db-security-group`
+   - `/{env}/wumbo/private-subnets`
+   - `/{env}/wumbo/db-security-group`
 
 ### Workflow fails at "Wait for services to stabilize"
 

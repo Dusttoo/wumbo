@@ -1,6 +1,6 @@
 # Monorepo Setup Complete! 🎉
 
-The Family Budget monorepo structure has been successfully initialized with Turborepo.
+The Wumbo monorepo structure has been successfully initialized with Turborepo.
 
 ## What's Been Created
 
@@ -75,7 +75,7 @@ The Family Budget monorepo structure has been successfully initialized with Turb
 ## Project Structure
 
 ```
-family-budget/
+wumbo/
 ├── .github/
 │   └── workflows/          # CI/CD workflows (already created)
 ├── apps/
@@ -176,18 +176,18 @@ npm run clean        # Clean all build artifacts
 
 ```bash
 # Web app
-npm run dev --workspace=@family-budget/web
-npm run build --workspace=@family-budget/web
+npm run dev --workspace=@wumbo/web
+npm run build --workspace=@wumbo/web
 
 # Mobile app
-npm run dev --workspace=@family-budget/mobile
+npm run dev --workspace=@wumbo/mobile
 
 # UI package
-npm run build --workspace=@family-budget/ui
-npm run dev --workspace=@family-budget/ui  # Watch mode
+npm run build --workspace=@wumbo/ui
+npm run dev --workspace=@wumbo/ui  # Watch mode
 
 # Types package
-npm run build --workspace=@family-budget/types
+npm run build --workspace=@wumbo/types
 ```
 
 ---
@@ -224,13 +224,13 @@ Packages can depend on each other:
 ```json
 {
   "dependencies": {
-    "@family-budget/ui": "workspace:*",
-    "@family-budget/types": "workspace:*"
+    "@wumbo/ui": "workspace:*",
+    "@wumbo/types": "workspace:*"
   }
 }
 ```
 
-Changes to `@family-budget/ui` will automatically trigger rebuilds in dependent packages.
+Changes to `@wumbo/ui` will automatically trigger rebuilds in dependent packages.
 
 ---
 
@@ -332,11 +332,11 @@ This will run lint and type-check before each commit.
 
 ## Troubleshooting
 
-### "Cannot find module @family-budget/ui"
+### "Cannot find module @wumbo/ui"
 
 **Solution**: Build the package first
 ```bash
-npm run build --workspace=@family-budget/ui
+npm run build --workspace=@wumbo/ui
 ```
 
 ### "Workspace not found"
